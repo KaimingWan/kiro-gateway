@@ -61,6 +61,10 @@ try:
 except ImportError:
     debug_logger = None
 
+# Track last context_usage_percentage across requests
+# so message_start can report accurate input_tokens from the start
+_last_context_usage_percentage: Optional[float] = None
+
 
 def generate_message_id() -> str:
     """Generate unique message ID in Anthropic format."""
@@ -137,6 +141,17 @@ async def stream_kiro_to_anthropic(
     # Count input tokens from request messages
     if request_messages:
         input_tokens = count_message_tokens(request_messages, apply_claude_correction=False)
+    
+    # If we have context usage from a previous request, use it for a better estimate
+    # This helps Claude Code see accurate context pressure from message_start
+    global _last_context_usage_percentage
+    if _last_context_usage_percentage is not None and _last_context_usage_percentage > 0:
+        estimated_prompt, _, _, _ = calculate_tokens_from_context_usage(
+            _last_context_usage_percentage, 0, model_cache, model
+        )
+        if estimated_prompt > input_tokens:
+            input_tokens = estimated_prompt
+            logger.debug(f"Using previous context_usage ({_last_context_usage_percentage}%) for message_start: {input_tokens} tokens")
     
     # Track content blocks - thinking block is index 0, text block is index 1 (when thinking enabled)
     current_block_index = 0
@@ -464,19 +479,26 @@ async def stream_kiro_to_anthropic(
             )
             input_tokens = prompt_tokens
         
+        # Save context_usage for next request's message_start estimate
+        if context_usage_percentage is not None:
+            _last_context_usage_percentage = context_usage_percentage
+        
         # Determine stop reason
         stop_reason = "tool_use" if tool_blocks else "end_turn"
         
         # Send message_delta with stop_reason and usage
+        # Include input_tokens from context_usage_percentage so Claude Code
+        # sees accurate context usage and triggers compaction at the right time
+        delta_usage = {"output_tokens": output_tokens}
+        if context_usage_percentage is not None and input_tokens > 0:
+            delta_usage["input_tokens"] = input_tokens
         yield format_sse_event("message_delta", {
             "type": "message_delta",
             "delta": {
                 "stop_reason": stop_reason,
                 "stop_sequence": None
             },
-            "usage": {
-                "output_tokens": output_tokens
-            }
+            "usage": delta_usage
         })
         
         # Send message_stop
