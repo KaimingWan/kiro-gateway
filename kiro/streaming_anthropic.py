@@ -39,6 +39,13 @@ from typing import TYPE_CHECKING, AsyncGenerator, Dict, List, Optional, Any
 import httpx
 from loguru import logger
 
+from kiro.web_search import (
+    WEB_SEARCH_ENABLED,
+    execute_web_search,
+    format_server_tool_use_events,
+    format_web_search_result_events,
+    format_search_results_as_text,
+)
 from kiro.streaming_core import (
     parse_kiro_stream,
     collect_stream_to_result,
@@ -161,6 +168,7 @@ async def stream_kiro_to_anthropic(
     text_block_index: Optional[int] = None
     tool_blocks: List[Dict[str, Any]] = []
     tool_input_buffers: Dict[int, str] = {}  # index -> accumulated JSON
+    web_search_results: List[Dict[str, Any]] = []  # intercepted web search results
     
     # Generate signature for thinking block (used if thinking is present)
     thinking_signature = generate_thinking_signature()
@@ -332,6 +340,39 @@ async def stream_kiro_to_anthropic(
                     except json.JSONDecodeError:
                         tool_input = {}
                 
+                # ── Web search interception ──
+                if WEB_SEARCH_ENABLED and tool_name == "web_search":
+                    query = tool_input.get("query", "")
+                    search_tool_id = f"srvtoolu_{uuid.uuid4().hex[:20]}"
+                    logger.info(f"Intercepting web_search: query={query!r}")
+                    
+                    # Emit server_tool_use block (Anthropic format)
+                    for evt_type, evt_data in format_server_tool_use_events(
+                        current_block_index, query, search_tool_id
+                    ):
+                        yield format_sse_event(evt_type, evt_data)
+                    current_block_index += 1
+                    
+                    # Execute search
+                    search_results = await execute_web_search(query)
+                    
+                    # Emit web_search_tool_result block
+                    for evt_type, evt_data in format_web_search_result_events(
+                        current_block_index, search_tool_id, search_results
+                    ):
+                        yield format_sse_event(evt_type, evt_data)
+                    current_block_index += 1
+                    
+                    # Store search results for follow-up (don't add to tool_blocks)
+                    web_search_results.append({
+                        "tool_id": tool_id,
+                        "query": query,
+                        "results": search_results,
+                        "results_text": format_search_results_as_text(search_results),
+                    })
+                    continue
+                # ── End web search interception ──
+                
                 # Send tool_use block start
                 yield format_sse_event("content_block_start", {
                     "type": "content_block_start",
@@ -485,6 +526,9 @@ async def stream_kiro_to_anthropic(
         
         # Determine stop reason
         stop_reason = "tool_use" if tool_blocks else "end_turn"
+        # Web search results were handled inline, not as tool_use for client
+        if not tool_blocks and web_search_results:
+            stop_reason = "end_turn"
         
         # Send message_delta with stop_reason and usage
         # Include input_tokens from context_usage_percentage so Claude Code

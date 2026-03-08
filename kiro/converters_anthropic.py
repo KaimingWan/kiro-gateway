@@ -30,6 +30,7 @@ from loguru import logger
 
 from kiro.config import HIDDEN_MODELS
 from kiro.model_resolver import get_model_id_for_kiro
+from kiro.web_search import is_web_search_server_tool, WEB_SEARCH_TOOL_DEFINITION, WEB_SEARCH_ENABLED
 from kiro.models_anthropic import (
     AnthropicMessagesRequest,
     AnthropicMessage,
@@ -364,9 +365,18 @@ def convert_anthropic_tools(
             description = getattr(tool, "description", None)
             input_schema = getattr(tool, "input_schema", None)
 
-        # Skip server tools (web_search, etc.) - they have type but no input_schema
-        # Kiro API doesn't support these, so we filter them out
+        # Handle server tools (web_search, etc.)
         if tool_type and not name and not input_schema:
+            # Convert web_search server tool to regular tool for Kiro model
+            if WEB_SEARCH_ENABLED and is_web_search_server_tool(tool):
+                unified_tools.append(
+                    UnifiedTool(
+                        name=WEB_SEARCH_TOOL_DEFINITION["name"],
+                        description=WEB_SEARCH_TOOL_DEFINITION["description"],
+                        input_schema=WEB_SEARCH_TOOL_DEFINITION["input_schema"],
+                    )
+                )
+                logger.debug("Converted web_search server tool to regular tool for Kiro")
             continue
         if not input_schema:
             input_schema = {"type": "object", "properties": {}}
