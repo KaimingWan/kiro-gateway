@@ -354,13 +354,22 @@ def convert_anthropic_tools(
     for tool in tools:
         # Handle both dict and Pydantic model
         if isinstance(tool, dict):
+            tool_type = tool.get("type")
             name = tool.get("name", "")
             description = tool.get("description")
-            input_schema = tool.get("input_schema", {})
+            input_schema = tool.get("input_schema")
         else:
-            name = tool.name
-            description = tool.description
-            input_schema = tool.input_schema
+            tool_type = getattr(tool, "type", None)
+            name = getattr(tool, "name", None) or ""
+            description = getattr(tool, "description", None)
+            input_schema = getattr(tool, "input_schema", None)
+
+        # Skip server tools (web_search, etc.) - they have type but no input_schema
+        # Kiro API doesn't support these, so we filter them out
+        if tool_type and not name and not input_schema:
+            continue
+        if not input_schema:
+            input_schema = {"type": "object", "properties": {}}
 
         unified_tools.append(
             UnifiedTool(name=name, description=description, input_schema=input_schema)

@@ -185,15 +185,22 @@ class AnthropicTool(BaseModel):
     """
     Tool definition in Anthropic format.
 
+    Supports both regular tools (with input_schema) and server tools
+    (like web_search_20250305, which have type but no input_schema).
+
     Attributes:
+        type: Tool type (e.g., "web_search_20250305" for server tools)
         name: Tool name (must match pattern ^[a-zA-Z0-9_-]{1,64}$)
         description: Tool description (optional but recommended)
-        input_schema: JSON Schema for tool parameters
+        input_schema: JSON Schema for tool parameters (optional for server tools)
     """
 
-    name: str
+    model_config = {"extra": "allow"}
+
+    type: Optional[str] = None
+    name: Optional[str] = None
     description: Optional[str] = None
-    input_schema: Dict[str, Any]
+    input_schema: Optional[Dict[str, Any]] = None
 
 
 class ToolChoiceAuto(BaseModel):
