@@ -342,12 +342,12 @@ class KiroAuthManager:
             if 'profileArn' in data:
                 self._profile_arn = data['profileArn']
             if 'region' in data:
-                self._region = data['region']
-                # Update URLs for new region
-                self._refresh_url = get_kiro_refresh_url(self._region)
-                self._api_host = get_kiro_api_host(self._region)
-                self._q_host = get_kiro_q_host(self._region)
-                logger.info(f"Region updated from credentials file: region={self._region}, api_host={self._api_host}, q_host={self._q_host}")
+                self._sso_region = data['region']
+                self._refresh_url = get_kiro_refresh_url(self._sso_region)
+                # API host always uses us-east-1 (q.{region}.amazonaws.com only exists for us-east-1)
+                self._api_host = get_kiro_api_host("us-east-1")
+                self._q_host = get_kiro_q_host("us-east-1")
+                logger.info(f"Region from credentials: sso={self._sso_region}, api_host={self._api_host}")
             
             # Load clientIdHash and device registration for Enterprise Kiro IDE
             if 'clientIdHash' in data:
