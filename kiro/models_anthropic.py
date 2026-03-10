@@ -28,7 +28,7 @@ Reference: https://docs.anthropic.com/en/api/messages
 
 import time
 from typing import Any, Dict, List, Literal, Optional, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ==================================================================================================
@@ -146,11 +146,52 @@ class ImageContentBlock(BaseModel):
     source: Union[Base64ImageSource, URLImageSource]
 
 
-# Union type for all content blocks (including images and thinking)
+class Base64DocumentSource(BaseModel):
+    """
+    Base64-encoded document source in Anthropic format.
+
+    Attributes:
+        type: Always "base64"
+        media_type: MIME type (e.g., "application/pdf")
+        data: Base64-encoded document data
+    """
+
+    type: Literal["base64"] = "base64"
+    media_type: str
+    data: str
+
+
+class DocumentContentBlock(BaseModel):
+    """
+    Document content block in Anthropic format.
+
+    Used by Claude Code when reading PDF files. The document is base64-encoded.
+    Kiro API does not support document blocks, so the gateway converts them
+    to a text placeholder during message conversion.
+
+    Attributes:
+        type: Always "document"
+        source: Document source (base64)
+        title: Optional document title
+        context: Optional context about the document
+        citations: Optional citation config
+    """
+
+    type: Literal["document"] = "document"
+    source: Base64DocumentSource
+    title: Optional[str] = None
+    context: Optional[str] = None
+    citations: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+# Union type for all content blocks (including images, documents, and thinking)
 ContentBlock = Union[
     TextContentBlock,
     ThinkingContentBlock,
     ImageContentBlock,
+    DocumentContentBlock,
     ToolUseContentBlock,
     ToolResultContentBlock,
 ]

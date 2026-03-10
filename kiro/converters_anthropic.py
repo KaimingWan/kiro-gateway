@@ -68,8 +68,29 @@ def convert_anthropic_content_to_text(content: Any) -> str:
             if isinstance(block, dict):
                 if block.get("type") == "text":
                     text_parts.append(block.get("text", ""))
-            elif hasattr(block, "type") and block.type == "text":
-                text_parts.append(block.text)
+                elif block.get("type") == "document":
+                    # Document blocks (PDF) are not supported by Kiro API.
+                    # Convert to text placeholder so the request doesn't fail.
+                    title = block.get("title") or "document"
+                    media = block.get("source", {}).get("media_type", "unknown")
+                    context = block.get("context", "")
+                    placeholder = f"[Attached document: {title} ({media})]"
+                    if context:
+                        placeholder += f"\n{context}"
+                    text_parts.append(placeholder)
+                    logger.debug(f"Converted document block to text placeholder: {title}")
+            elif hasattr(block, "type"):
+                if block.type == "text":
+                    text_parts.append(block.text)
+                elif block.type == "document":
+                    title = getattr(block, "title", None) or "document"
+                    media = getattr(block.source, "media_type", "unknown") if hasattr(block, "source") else "unknown"
+                    context = getattr(block, "context", "") or ""
+                    placeholder = f"[Attached document: {title} ({media})]"
+                    if context:
+                        placeholder += f"\n{context}"
+                    text_parts.append(placeholder)
+                    logger.debug(f"Converted document block to text placeholder: {title}")
         return "".join(text_parts)
 
     return str(content) if content else ""
